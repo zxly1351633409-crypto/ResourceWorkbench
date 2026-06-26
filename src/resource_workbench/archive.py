@@ -4,6 +4,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+import time
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,74 @@ def list_archive_entries(archive_path: Path, limit: int = 200, timeout_seconds: 
         "backend": str(backend.executable),
         "entries": entries[:limit],
         "truncated": len(entries) >= limit,
+        "error": None,
+    }
+
+
+def extract_archive_entry(archive_path: Path, entry_path: str, output_dir: Path, timeout_seconds: int = 60) -> dict:
+    """Extract one archive entry to a cache directory.
+
+    This is used only for preview images. It does not modify the source archive.
+    """
+    backend = preferred_archive_backend()
+    if backend is None:
+        return {
+            "ok": False,
+            "path": None,
+            "error": "没有找到可用的命令行解压工具。",
+        }
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    before = time.time()
+    command = [
+        str(backend.executable),
+        "e",
+        "-y",
+        "-p",
+        str(archive_path),
+        entry_path,
+        f"-o{output_dir}",
+    ]
+
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "path": None,
+            "error": f"抽取预览图超过 {timeout_seconds} 秒，已停止。",
+        }
+
+    extracted_files = [
+        item
+        for item in output_dir.iterdir()
+        if item.is_file() and item.stat().st_mtime >= before - 1
+    ]
+    if not extracted_files:
+        extracted_files = [item for item in output_dir.iterdir() if item.is_file()]
+    if not extracted_files:
+        if completed.returncode != 0:
+            fallback_text = _decode_process_output(completed.stderr).strip() or _decode_process_output(completed.stdout).strip()
+            return {
+                "ok": False,
+                "path": None,
+                "error": fallback_text[-800:],
+            }
+        return {
+            "ok": False,
+            "path": None,
+            "error": "预览图抽取完成，但没有找到输出文件。",
+        }
+
+    newest = max(extracted_files, key=lambda item: item.stat().st_mtime)
+    return {
+        "ok": True,
+        "path": str(newest),
         "error": None,
     }
 

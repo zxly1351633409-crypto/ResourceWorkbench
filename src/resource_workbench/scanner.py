@@ -42,12 +42,14 @@ def _empty_group(path: str) -> dict:
         "extensions": Counter(),
         "archives": [],
         "inspected_archives": 0,
+        "image_candidates": [],
         "samples": defaultdict(list),
         "archive_previews": [],
         "archive_virtual_buckets": Counter(),
         "archive_virtual_extensions": Counter(),
         "archive_entry_samples": [],
         "archive_candidate_roots": Counter(),
+        "archive_subresources": {},
         "texture_name_hits": 0,
     }
 
@@ -179,6 +181,7 @@ def _record_file(result: dict, group: dict, file_path: Path, relative: Path, con
     if bucket == "archive":
         archive_info = {
             "relative_path": relative_text,
+            "absolute_path": str(file_path),
             "size": size,
             "extension": ext,
         }
@@ -186,6 +189,8 @@ def _record_file(result: dict, group: dict, file_path: Path, relative: Path, con
         if len(result["archives"]) < 200:
             result["archives"].append(archive_info)
         _maybe_inspect_archive(result, group, file_path, relative_text, config)
+    elif bucket == "image" and len(group["image_candidates"]) < config.sample_per_bucket:
+        group["image_candidates"].append(str(file_path))
 
 
 def _maybe_inspect_archive(result: dict, group: dict, file_path: Path, relative_text: str, config: ScanConfig) -> None:
@@ -206,6 +211,7 @@ def _maybe_inspect_archive(result: dict, group: dict, file_path: Path, relative_
 
     preview = {
         "relative_path": relative_text,
+        "absolute_path": str(file_path),
         "ok": listing.get("ok"),
         "backend": listing.get("backend"),
         "sample_count": len(listing.get("entries", [])),
@@ -218,6 +224,7 @@ def _maybe_inspect_archive(result: dict, group: dict, file_path: Path, relative_
     }
 
     entry_parts: list[list[str]] = []
+    entry_records: list[dict] = []
     for index, entry in enumerate(listing.get("entries", [])):
         entry_path = entry.get("Path") or ""
         if not entry_path:
@@ -240,15 +247,71 @@ def _maybe_inspect_archive(result: dict, group: dict, file_path: Path, relative_
         parts = _split_archive_entry_path(entry_path)
         if parts:
             entry_parts.append(parts)
+            entry_records.append(
+                {
+                    "path": entry_path,
+                    "parts": parts,
+                    "bucket": bucket,
+                    "extension": ext,
+                }
+            )
 
-    for candidate, count in _candidate_roots_from_parts(entry_parts).items():
+    candidate_roots = _candidate_roots_from_parts(entry_parts)
+    for candidate, count in candidate_roots.items():
         preview["candidate_roots"][candidate] += count
         group["archive_candidate_roots"][candidate] += count
+    for record in entry_records:
+        candidate = _candidate_for_parts(record["parts"], candidate_roots)
+        if candidate:
+            _record_archive_subresource(group, candidate, file_path, relative_text, record)
 
     preview["buckets"] = dict(preview["buckets"].most_common())
     preview["extensions"] = dict(preview["extensions"].most_common(12))
     preview["candidate_roots"] = dict(preview["candidate_roots"].most_common(20))
     group["archive_previews"].append(preview)
+
+
+def _record_archive_subresource(group: dict, candidate: str, archive_path: Path, archive_relative: str, record: dict) -> None:
+    subresources = group["archive_subresources"]
+    sub = subresources.setdefault(
+        candidate,
+        {
+            "name": candidate,
+            "source_archives": [],
+            "total_entries": 0,
+            "buckets": Counter(),
+            "extensions": Counter(),
+            "samples": [],
+            "image_samples": [],
+            "archive_samples": [],
+            "texture_name_hits": 0,
+        },
+    )
+    archive_info = {
+        "absolute_path": str(archive_path),
+        "relative_path": archive_relative,
+    }
+    if archive_info not in sub["source_archives"]:
+        sub["source_archives"].append(archive_info)
+
+    entry_path = record["path"]
+    bucket = record["bucket"]
+    ext = record["extension"]
+    sub["total_entries"] += 1
+    sub["buckets"][bucket] += 1
+    sub["extensions"][ext] += 1
+    sub["texture_name_hits"] += texture_name_score(entry_path)
+    if len(sub["samples"]) < 18:
+        sub["samples"].append(entry_path)
+    if bucket == "image" and len(sub["image_samples"]) < 6:
+        sub["image_samples"].append(
+            {
+                "archive_path": str(archive_path),
+                "entry_path": entry_path,
+            }
+        )
+    elif bucket == "archive" and len(sub["archive_samples"]) < 6:
+        sub["archive_samples"].append(entry_path)
 
 
 def _split_archive_entry_path(entry_path: str) -> list[str]:
@@ -272,6 +335,19 @@ def _candidate_roots_from_parts(paths: list[list[str]]) -> Counter:
     if dominant_first and meaningful_second_count >= 3:
         return second_counts
     return first_counts
+
+
+def _candidate_for_parts(parts: list[str], candidates: Counter) -> str | None:
+    if not candidates:
+        return None
+    if len(parts) >= 2 and parts[1] in candidates:
+        return parts[1]
+    if parts and parts[0] in candidates:
+        return parts[0]
+    for part in parts[:3]:
+        if part in candidates:
+            return part
+    return None
 
 
 def _is_meaningful_segment(segment: str) -> bool:

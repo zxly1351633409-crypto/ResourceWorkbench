@@ -76,11 +76,17 @@ def render_markdown(payload: dict) -> str:
         review = "需要人工确认" if card["needs_human_review"] else "可作为候选"
         lines.append(f"### {index}. {card['name']}")
         lines.append("")
+        if card.get("split_from"):
+            lines.append(f"- 拆分来源：`{card['split_from']}`")
         lines.append(f"- 建议类型：{card['suggested_type']}")
         lines.append(f"- 置信度：{card['confidence']}")
+        if card.get("content_tags"):
+            lines.append(f"- 内容线索：{' / '.join(card['content_tags'])}")
         lines.append(f"- 状态：{review}")
         lines.append(f"- 文件数：{card['total_files']}")
         lines.append(f"- 内部压缩包：{card['archive_count']}")
+        if card.get("source_archive_count"):
+            lines.append(f"- 来源压缩包：{card['source_archive_count']}")
         if card.get("inspected_archives"):
             lines.append(f"- 已预览压缩包：{card['inspected_archives']}")
         if card.get("virtual_archive_count"):
@@ -89,8 +95,13 @@ def render_markdown(payload: dict) -> str:
             lines.append(f"- 可能需要拆分的子资源：约 {card['possible_split_count']} 个")
         if card["target_path_hints"]:
             lines.append("- 目标分类候选：")
-            for target in card["target_path_hints"]:
-                lines.append(f"  - `{target}`")
+            suggestions = card.get("target_suggestions") or []
+            if suggestions:
+                for suggestion in suggestions[:5]:
+                    lines.append(f"  - `{suggestion['path']}`：{suggestion['reason']}")
+            else:
+                for target in card["target_path_hints"]:
+                    lines.append(f"  - `{target}`")
         lines.append("- 判断原因：")
         for reason in card["reasons"] or ["暂无明显原因。"]:
             lines.append(f"  - {reason}")
