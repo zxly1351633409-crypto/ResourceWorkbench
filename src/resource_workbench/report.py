@@ -81,6 +81,12 @@ def render_markdown(payload: dict) -> str:
         lines.append(f"- 状态：{review}")
         lines.append(f"- 文件数：{card['total_files']}")
         lines.append(f"- 内部压缩包：{card['archive_count']}")
+        if card.get("inspected_archives"):
+            lines.append(f"- 已预览压缩包：{card['inspected_archives']}")
+        if card.get("virtual_archive_count"):
+            lines.append(f"- 压缩包内仍有压缩包：{card['virtual_archive_count']}")
+        if card.get("possible_split_count", 0) >= 3:
+            lines.append(f"- 可能需要拆分的子资源：约 {card['possible_split_count']} 个")
         if card["target_path_hints"]:
             lines.append("- 目标分类候选：")
             for target in card["target_path_hints"]:
@@ -91,6 +97,18 @@ def render_markdown(payload: dict) -> str:
         lines.append("- 文件类型摘要：")
         for bucket, count in card["buckets"].items():
             lines.append(f"  - {bucket}: {count}")
+        if card.get("archive_virtual_buckets"):
+            lines.append("- 压缩包目录预览摘要：")
+            for bucket, count in card["archive_virtual_buckets"].items():
+                lines.append(f"  - {bucket}: {count}")
+        if card.get("archive_entry_samples"):
+            lines.append("- 压缩包目录样例：")
+            for sample in card["archive_entry_samples"][:8]:
+                lines.append(f"  - `{sample}`")
+        if card.get("possible_split_count", 0) >= 3:
+            lines.append("- 子资源候选：")
+            for candidate, count in list(card.get("candidate_subresources", {}).items())[:12]:
+                lines.append(f"  - `{candidate}`（样例项 {count}）")
         lines.append("")
 
     lines.append("## 下一步建议")

@@ -81,9 +81,6 @@ def list_archive_entries(archive_path: Path, limit: int = 200, timeout_seconds: 
         completed = subprocess.run(
             command,
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=timeout_seconds,
             check=False,
         )
@@ -96,7 +93,7 @@ def list_archive_entries(archive_path: Path, limit: int = 200, timeout_seconds: 
         }
 
     if completed.returncode != 0:
-        fallback_text = completed.stderr.strip() or completed.stdout.strip()
+        fallback_text = _decode_process_output(completed.stderr).strip() or _decode_process_output(completed.stdout).strip()
         return {
             "ok": False,
             "backend": str(backend.executable),
@@ -106,7 +103,8 @@ def list_archive_entries(archive_path: Path, limit: int = 200, timeout_seconds: 
 
     entries: list[dict] = []
     current: dict[str, str] = {}
-    for raw_line in completed.stdout.splitlines():
+    stdout = _decode_process_output(completed.stdout)
+    for raw_line in stdout.splitlines():
         line = raw_line.strip()
         if not line:
             if current.get("Path"):
@@ -132,3 +130,11 @@ def list_archive_entries(archive_path: Path, limit: int = 200, timeout_seconds: 
         "error": None,
     }
 
+
+def _decode_process_output(data: bytes) -> str:
+    for encoding in ("utf-8-sig", "gbk", "cp936", "mbcs"):
+        try:
+            return data.decode(encoding)
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return data.decode("utf-8", errors="replace")

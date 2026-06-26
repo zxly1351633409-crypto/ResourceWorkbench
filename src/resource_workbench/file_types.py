@@ -155,6 +155,24 @@ def is_archive(path: Path | str) -> bool:
     return False
 
 
+def is_archive_entrypoint(path: Path | str) -> bool:
+    """Return True when this archive path is likely the first usable volume.
+
+    For multipart archives we should inspect/extract only part1/001, not every
+    continuation volume.
+    """
+    name = Path(path).name.lower()
+    if not is_archive(path):
+        return False
+    if ".part" in name and name.endswith(".rar"):
+        return ".part1.rar" in name or ".part01.rar" in name
+    if name.endswith(".001"):
+        return True
+    if name.endswith(".z01") or name.endswith(".z02"):
+        return False
+    return True
+
+
 def type_bucket(path: Path | str) -> str:
     ext = normalized_ext(path)
     if is_archive(path):
@@ -179,4 +197,3 @@ def type_bucket(path: Path | str) -> str:
 def texture_name_score(name: str) -> int:
     lower = name.lower()
     return sum(1 for hint in TEXTURE_NAME_HINTS if hint in lower)
-

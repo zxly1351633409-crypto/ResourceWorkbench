@@ -28,6 +28,9 @@ def main(argv: list[str] | None = None) -> int:
     analyze_parser.add_argument("--max-files", type=int, default=30000, help="最多扫描文件数。")
     analyze_parser.add_argument("--max-depth", type=int, default=8, help="最多扫描目录深度。")
     analyze_parser.add_argument("--max-seconds", type=int, default=120, help="最多扫描秒数。")
+    analyze_parser.add_argument("--no-inspect-archives", action="store_true", help="不预览压缩包目录。")
+    analyze_parser.add_argument("--max-archives", type=int, default=12, help="最多预览多少个压缩包目录。")
+    analyze_parser.add_argument("--max-archive-entries", type=int, default=300, help="每个压缩包最多读取多少条目录项。")
     analyze_parser.add_argument("--json", action="store_true", help="在终端输出 JSON 摘要。")
 
     tools_parser = subparsers.add_parser("tools", help="检查当前可用工具。")
@@ -71,6 +74,9 @@ def _analyze(args: argparse.Namespace) -> int:
         max_files=args.max_files,
         max_depth=args.max_depth,
         max_seconds=args.max_seconds,
+        inspect_archives=not args.no_inspect_archives,
+        max_archives_to_inspect=args.max_archives,
+        max_entries_per_archive=args.max_archive_entries,
     )
     scan = scan_input(input_path, config=config)
 
@@ -88,6 +94,7 @@ def _analyze(args: argparse.Namespace) -> int:
         "total_files": scan.get("total_files"),
         "total_dirs": scan.get("total_dirs"),
         "cards": len(cards),
+        "inspected_archives": scan.get("inspected_archives", 0),
         "markdown_report": paths["markdown"],
         "json_report": paths["json"],
         "readonly": True,
@@ -106,4 +113,3 @@ def _analyze(args: argparse.Namespace) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

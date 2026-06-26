@@ -4,8 +4,10 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
-from .file_types import is_archive, normalized_ext, texture_name_score, type_bucket
+from .archive import list_archive_entries
+from .file_types import is_archive, is_archive_entrypoint, normalized_ext, texture_name_score, type_bucket
 
 
 SKIP_DIR_NAMES = {
@@ -24,6 +26,10 @@ class ScanConfig:
     max_depth: int = 8
     max_seconds: int = 120
     sample_per_bucket: int = 12
+    inspect_archives: bool = True
+    max_archives_to_inspect: int = 12
+    max_entries_per_archive: int = 300
+    archive_timeout_seconds: int = 60
 
 
 def _empty_group(path: str) -> dict:
@@ -35,7 +41,13 @@ def _empty_group(path: str) -> dict:
         "buckets": Counter(),
         "extensions": Counter(),
         "archives": [],
+        "inspected_archives": 0,
         "samples": defaultdict(list),
+        "archive_previews": [],
+        "archive_virtual_buckets": Counter(),
+        "archive_virtual_extensions": Counter(),
+        "archive_entry_samples": [],
+        "archive_candidate_roots": Counter(),
         "texture_name_hits": 0,
     }
 
@@ -64,6 +76,7 @@ def scan_input(input_path: Path, config: ScanConfig | None = None) -> dict:
         "buckets": Counter(),
         "groups": {},
         "archives": [],
+        "inspected_archives": 0,
         "warnings": [],
         "elapsed_seconds": 0.0,
     }
@@ -172,6 +185,106 @@ def _record_file(result: dict, group: dict, file_path: Path, relative: Path, con
         group["archives"].append(archive_info)
         if len(result["archives"]) < 200:
             result["archives"].append(archive_info)
+        _maybe_inspect_archive(result, group, file_path, relative_text, config)
+
+
+def _maybe_inspect_archive(result: dict, group: dict, file_path: Path, relative_text: str, config: ScanConfig) -> None:
+    if not config.inspect_archives:
+        return
+    if result["inspected_archives"] >= config.max_archives_to_inspect:
+        return
+    if not is_archive_entrypoint(file_path):
+        return
+
+    listing = list_archive_entries(
+        file_path,
+        limit=config.max_entries_per_archive,
+        timeout_seconds=config.archive_timeout_seconds,
+    )
+    result["inspected_archives"] += 1
+    group["inspected_archives"] += 1
+
+    preview = {
+        "relative_path": relative_text,
+        "ok": listing.get("ok"),
+        "backend": listing.get("backend"),
+        "sample_count": len(listing.get("entries", [])),
+        "truncated": listing.get("truncated", False),
+        "error": listing.get("error"),
+        "samples": [],
+        "buckets": Counter(),
+        "extensions": Counter(),
+        "candidate_roots": Counter(),
+    }
+
+    entry_parts: list[list[str]] = []
+    for index, entry in enumerate(listing.get("entries", [])):
+        entry_path = entry.get("Path") or ""
+        if not entry_path:
+            continue
+        if index == 0 and ":" in entry_path[:5]:
+            continue
+
+        bucket = type_bucket(entry_path)
+        ext = normalized_ext(entry_path) or "(无扩展名)"
+        preview["buckets"][bucket] += 1
+        preview["extensions"][ext] += 1
+        group["archive_virtual_buckets"][bucket] += 1
+        group["archive_virtual_extensions"][ext] += 1
+        group["texture_name_hits"] += texture_name_score(entry_path)
+
+        if len(preview["samples"]) < config.sample_per_bucket:
+            preview["samples"].append(entry_path)
+        if len(group["archive_entry_samples"]) < config.sample_per_bucket * 2:
+            group["archive_entry_samples"].append(entry_path)
+        parts = _split_archive_entry_path(entry_path)
+        if parts:
+            entry_parts.append(parts)
+
+    for candidate, count in _candidate_roots_from_parts(entry_parts).items():
+        preview["candidate_roots"][candidate] += count
+        group["archive_candidate_roots"][candidate] += count
+
+    preview["buckets"] = dict(preview["buckets"].most_common())
+    preview["extensions"] = dict(preview["extensions"].most_common(12))
+    preview["candidate_roots"] = dict(preview["candidate_roots"].most_common(20))
+    group["archive_previews"].append(preview)
+
+
+def _split_archive_entry_path(entry_path: str) -> list[str]:
+    normalized = entry_path.replace("/", "\\")
+    return [part for part in normalized.split("\\") if part and not part.endswith(":")]
+
+
+def _candidate_roots_from_parts(paths: list[list[str]]) -> Counter:
+    if not paths:
+        return Counter()
+
+    first_counts = Counter(parts[0] for parts in paths if len(parts) >= 1 and _is_meaningful_segment(parts[0]))
+    second_counts = Counter(parts[1] for parts in paths if len(parts) >= 2 and _is_meaningful_segment(parts[1]))
+    if not first_counts:
+        return Counter()
+
+    top_first, top_first_count = first_counts.most_common(1)[0]
+    dominant_first = top_first_count / max(1, sum(first_counts.values())) >= 0.8
+    meaningful_second_count = len(second_counts)
+
+    if dominant_first and meaningful_second_count >= 3:
+        return second_counts
+    return first_counts
+
+
+def _is_meaningful_segment(segment: str) -> bool:
+    lower = segment.strip().lower()
+    if not lower:
+        return False
+    if lower in {"assets", "asset", "textures", "texture", "maps", "images", "image", "preview", "previews", "file"}:
+        return False
+    if re.fullmatch(r"\d{1,3}", lower):
+        return False
+    if len(lower) < 4:
+        return False
+    return True
 
 
 def _json_ready(value):
