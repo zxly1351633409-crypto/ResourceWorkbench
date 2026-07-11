@@ -29,6 +29,10 @@ else:
     IMPORT_ERROR = None
 
 
+def _canonical_path(path: str | Path) -> str:
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
+
+
 @unittest.skipIf(IMPORT_ERROR is not None, f"Qt unavailable: {IMPORT_ERROR}")
 class MasonryCardWallTests(unittest.TestCase):
     @classmethod
@@ -683,9 +687,12 @@ class MasonryCardWallTests(unittest.TestCase):
                 self.assertIn(str(new_folder), tree_paths)
                 self.assertNotIn(str(old_folder), tree_paths)
 
-                cached_paths = {Path(item["source_path"]) for item in window.resource_index.load_child_cards(library)}
-                self.assertIn(new_folder, cached_paths)
-                self.assertNotIn(old_folder, cached_paths)
+                cached_paths = {
+                    _canonical_path(item["source_path"])
+                    for item in window.resource_index.load_child_cards(library)
+                }
+                self.assertIn(_canonical_path(new_folder), cached_paths)
+                self.assertNotIn(_canonical_path(old_folder), cached_paths)
             finally:
                 window.deleteLater()
                 preview_patcher.stop()

@@ -18,6 +18,10 @@ from resource_workbench.library_refresh import (
 )
 
 
+def _canonical_path(path: str | Path) -> str:
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
+
+
 class WindowsDirectoryNameTests(unittest.TestCase):
     def test_accepts_normal_chinese_and_internal_spaces(self):
         for name in ("24-延庆寺 视频（无人机）", "G 中国古建", "asset.v2"):
@@ -61,7 +65,7 @@ class LibraryContainmentTests(unittest.TestCase):
             parent.mkdir(parents=True)
             result = resolve_library_child(parent, "new category", [root])
             self.assertTrue(result.ok)
-            self.assertEqual(result.target, parent / "new category")
+            self.assertEqual(_canonical_path(result.target), _canonical_path(parent / "new category"))
             self.assertFalse(result.target.exists())
 
     def test_root_itself_is_a_valid_parent_for_a_new_child(self):

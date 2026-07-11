@@ -8,6 +8,7 @@
 - SpeedTree 优先复用真实 `preview.png` / `<工程名>_preview.png`，排除材质通道贴图；无图时使用明确非渲染占位封面。
 - 运行数据维护扩展到 staging、资源索引和明确终态历史；后台执行，保留活动任务、可撤销记录和人工元数据。
 - 修复窗口关闭时后台 Qt 任务的生命周期，避免退出阶段 fast-fail。
+- 测试路径断言统一比较 Windows 规范化真实路径，兼容 GitHub Runner 的 `RUNNER~1` 8.3 短路径别名；生产逻辑不变。
 - Windows EXE FileVersion/ProductVersion 更新为 0.3.1。
 
 ## 0.3.0 - 2026-07-11

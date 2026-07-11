@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
@@ -12,6 +13,10 @@ if str(SRC) not in sys.path:
 
 from resource_workbench import indexer
 from resource_workbench.indexer import ResourceIndex, placeholder_cards_for_path, quick_cards_for_path
+
+
+def _canonical_path(path: str | Path) -> str:
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
 
 
 class LeafMediaIndexTests(unittest.TestCase):
@@ -97,11 +102,20 @@ class LeafMediaIndexTests(unittest.TestCase):
 
         for cards in (placeholder_cards_for_path(leaf), quick_cards_for_path(leaf)):
             by_name = {card["name"]: card for card in cards}
-            self.assertEqual(by_name[image.name]["preview_source"], {"kind": "file", "path": str(image)})
-            self.assertEqual(by_name[video.name]["preview_source"], {"kind": "video_file", "path": str(video)})
+            self.assertEqual(by_name[image.name]["preview_source"]["kind"], "file")
+            self.assertEqual(
+                _canonical_path(by_name[image.name]["preview_source"]["path"]),
+                _canonical_path(image),
+            )
+            self.assertEqual(by_name[video.name]["preview_source"]["kind"], "video_file")
+            self.assertEqual(
+                _canonical_path(by_name[video.name]["preview_source"]["path"]),
+                _canonical_path(video),
+            )
 
         direct = placeholder_cards_for_path(video)
-        self.assertEqual(direct[0]["preview_source"], {"kind": "video_file", "path": str(video)})
+        self.assertEqual(direct[0]["preview_source"]["kind"], "video_file")
+        self.assertEqual(_canonical_path(direct[0]["preview_source"]["path"]), _canonical_path(video))
 
     def test_non_leaf_directory_keeps_folder_first_compatibility(self) -> None:
         parent = self.root / "category"

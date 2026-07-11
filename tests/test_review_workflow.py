@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
@@ -19,6 +20,10 @@ if str(SRC) not in sys.path:
 
 from resource_workbench import deepseek, mover, review_queue
 from resource_workbench.move_log import MoveLog, count_tree
+
+
+def _canonical_path(path: str | Path) -> str:
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
 
 
 def _sample_card(source_path: str, name: str = "Sci Fi Robot Leg") -> dict:
@@ -237,7 +242,7 @@ class MoveAndUndoTests(unittest.TestCase):
         self.assertTrue(result["dry_run"])
         self.assertTrue(res.exists())
         self.assertFalse(Path(result["destination"]).exists())
-        self.assertEqual(str(Path(result["destination"]).parent), str(target))
+        self.assertEqual(_canonical_path(Path(result["destination"]).parent), _canonical_path(target))
 
     def test_formal_move_records_and_can_be_undone(self):
         res = self._make_resource("Formal")
@@ -249,7 +254,9 @@ class MoveAndUndoTests(unittest.TestCase):
         self.assertTrue(result["ok"], result.get("error"))
         self.assertFalse(res.exists())
         self.assertTrue(Path(result["destination"]).exists())
-        self.assertTrue(Path(result["destination"]).is_relative_to(self.z_root))
+        destination = _canonical_path(Path(result["destination"]))
+        z_root = _canonical_path(self.z_root)
+        self.assertEqual(os.path.commonpath([destination, z_root]), z_root)
         rec = self.move_log.get(result["move_id"])
         self.assertIn("[formal]", rec["note"])
         undo = mover.undo_move(result["move_id"], self.move_log)
@@ -274,7 +281,10 @@ class MoveAndUndoTests(unittest.TestCase):
             card, [self.source_root], self.z_root, move_log=self.move_log, dry_run=True
         )
         self.assertTrue(result["ok"], result.get("error"))
-        self.assertEqual(Path(result["target_dir"]), self.z_root / "M 模型" / "K 科幻")
+        self.assertEqual(
+            _canonical_path(result["target_dir"]),
+            _canonical_path(self.z_root / "M 模型" / "K 科幻"),
+        )
 
     def test_formal_move_rejects_same_target_directory(self):
         target = self.z_root / "M Models"
