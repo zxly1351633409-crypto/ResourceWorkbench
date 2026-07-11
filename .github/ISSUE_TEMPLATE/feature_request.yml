@@ -1,0 +1,21 @@
+name: Feature request
+description: 建议新的扫描、分类、预览或入库工作流。
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes:
+      label: 使用场景
+      description: 你现在如何处理？最费时间的环节是什么？
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 期望交互
+      description: 描述理想结果以及不可接受的副作用。
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 样例
+      description: 如需举例，请使用脱敏目录名和虚构数据。

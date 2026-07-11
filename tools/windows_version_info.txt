@@ -1,0 +1,33 @@
+# UTF-8
+# PyInstaller Windows version resource for ResourceWorkbench 0.3.1.
+VSVersionInfo(
+    ffi=FixedFileInfo(
+        filevers=(0, 3, 1, 0),
+        prodvers=(0, 3, 1, 0),
+        mask=0x3F,
+        flags=0x0,
+        OS=0x40004,
+        fileType=0x1,
+        subtype=0x0,
+        date=(0, 0),
+    ),
+    kids=[
+        StringFileInfo(
+            [
+                StringTable(
+                    u"080404B0",
+                    [
+                        StringStruct(u"CompanyName", u"ResourceWorkbench Contributors"),
+                        StringStruct(u"FileDescription", u"ResourceWorkbench 资源入库工作台"),
+                        StringStruct(u"FileVersion", u"0.3.1"),
+                        StringStruct(u"InternalName", u"ResourceWorkbench"),
+                        StringStruct(u"OriginalFilename", u"ResourceWorkbench.exe"),
+                        StringStruct(u"ProductName", u"ResourceWorkbench"),
+                        StringStruct(u"ProductVersion", u"0.3.1"),
+                    ],
+                )
+            ]
+        ),
+        VarFileInfo([VarStruct(u"Translation", [2052, 1200])]),
+    ],
+)

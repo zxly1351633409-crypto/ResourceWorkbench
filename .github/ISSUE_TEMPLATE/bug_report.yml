@@ -1,0 +1,36 @@
+name: Bug report
+description: 报告可复现的问题；提交前请移除真实路径、API Key 和日志中的隐私信息。
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: 问题描述
+      description: 实际发生了什么？你原本期望什么？
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: 版本
+      placeholder: 0.3.0
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: 运行方式
+      options:
+        - Windows EXE
+        - 源码开发入口
+        - 干净分发预览
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 复现步骤
+      description: 请用脱敏的示例路径或最小样例说明。
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 补充信息
+      description: 可附脱敏截图；不要粘贴 API Key、NAS 地址或真实资源库结构。
