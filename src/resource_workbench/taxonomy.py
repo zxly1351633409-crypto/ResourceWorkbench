@@ -5,10 +5,16 @@ from functools import lru_cache
 from pathlib import Path
 
 
-NOISE_DIR_NAMES = {"工程", "Assets", "Asset", "新建文件夹", "__MACOSX"}
+NOISE_DIR_NAMES = {"工程", "Assets", "Asset", "新建文件夹", "__MACOSX", ".sync"}
 
 
-def suggest_target_paths(resource_type: str, search_text: str, z_root: Path | None) -> list[dict]:
+def suggest_target_paths(
+    resource_type: str,
+    search_text: str,
+    z_root: Path | None,
+    *,
+    name_text: str = "",
+) -> list[dict]:
     """Suggest fine-grained target paths using the user's existing Z-library tree."""
     if z_root is None or not z_root.exists():
         return []
@@ -17,7 +23,7 @@ def suggest_target_paths(resource_type: str, search_text: str, z_root: Path | No
     suggestions: list[dict] = []
 
     if resource_type == "model":
-        suggestions.extend(_suggest_model_targets(z_root, normalized))
+        suggestions.extend(_suggest_model_targets(z_root, normalized, _normalize(name_text) if name_text else ""))
     elif resource_type == "photo":
         suggestions.extend(_suggest_photo_targets(z_root, normalized))
     elif resource_type == "tutorial":
@@ -34,6 +40,15 @@ def suggest_target_paths(resource_type: str, search_text: str, z_root: Path | No
         path = _find_top(z_root, "Z zb")
         if path:
             suggestions.append(_make_suggestion(path, 70, "识别为 ZBrush 资源，匹配 Z zb brush。"))
+    elif resource_type in ("mixed", "unknown"):
+        # Fallback: try all known type handlers
+        suggestions.extend(_suggest_model_targets(z_root, normalized, _normalize(name_text) if name_text else ""))
+        suggestions.extend(_suggest_photo_targets(z_root, normalized))
+        suggestions.extend(_suggest_tutorial_targets(z_root, normalized))
+        for prefix, reason in [("C ", "材质"), ("U ", "UE"), ("Z zb", "ZBrush")]:
+            path = _find_top(z_root, prefix)
+            if path:
+                suggestions.append(_make_suggestion(path, 35, f"类型未确定，尝试匹配 {reason} 顶层。"))
 
     suggestions.extend(_learned_name_matches(z_root, resource_type, normalized))
     return _dedupe_suggestions(suggestions)[:5]
@@ -45,11 +60,17 @@ def describe_content(resource_type: str, search_text: str) -> list[str]:
 
     if resource_type == "model":
         for label, words in [
+            ("废土/废墟", ["wasteland", "post apocalyptic", "post-apocalyptic", "abandoned", "destroyed", "demolished", "debris", "rubble", "scrap", "wreck", "ruined", "废土", "废墟", "废弃", "残骸", "碎石", "瓦砾"]),
             ("科幻", ["sci fi", "sci-fi", "scifi", "futuristic", "future", "cyber", "robot", "mech", "space"]),
             ("机甲/机器人", ["robot", "mech", "mechanical", "android", "droid", "leg", "arm"]),
             ("枪支/弹药", ["gun", "rifle", "pistol", "ammo", "bullet", "cartridge", "weapon", "blackout", "5.56", "9mm"]),
-            ("建筑/城市", ["building", "architecture", "city", "factory", "street", "town", "urban"]),
-            ("载具/飞行器", ["vehicle", "car", "truck", "ship", "rocket", "aircraft", "spaceship"]),
+            ("建筑/立面", ["building", "buildings", "architecture", "facade", "facades", "floor", "wall", "建筑", "立面", "楼层", "地板"]),
+            ("城市/场景", ["city", "factory", "street", "town", "urban", "environment", "scene", "城市", "街道", "场景"]),
+            ("室内/商业空间", ["interior", "indoor", "room", "supermarket", "store", "shop", "室内", "超市", "商店"]),
+            ("道具/残骸", ["prop", "props", "debris", "rubble", "scrap", "wreck", "object", "objects", "道具", "残骸", "碎石", "废料"]),
+            ("军事/近现代", ["military", "army", "combat", "军事", "军用", "近现代"]),
+            ("乌克兰扫描", ["ukraine", "乌克兰"]),
+            ("载具/飞行器", ["vehicle", "car", "cars", "truck", "ship", "rocket", "aircraft", "spaceship", "载具", "汽车", "车辆"]),
             ("角色/人物", ["character", "soldier", "female", "male", "human", "body", "pose"]),
             ("贴图/面板", ["trim sheet", "texture", "panel", "material"]),
             ("自然", ["tree", "plant", "flower", "grass", "rock", "stone", "terrain", "mountain"]),
@@ -83,69 +104,199 @@ def describe_content(resource_type: str, search_text: str) -> list[str]:
     return tags[:6]
 
 
-def _suggest_model_targets(z_root: Path, text: str) -> list[dict]:
+def _suggest_model_targets(z_root: Path, text: str, title_text: str = "") -> list[dict]:
     model_root = _find_top(z_root, "M ")
     if model_root is None:
         return []
 
-    style = "M 模型"
-    style_reason = "识别为模型资源。"
+    style: str | None = None
+    style_reason = ""
     if _has_any(text, ["sci fi", "sci-fi", "scifi", "futuristic", "future", "cyber", "robot", "mech", "space"]):
         style = "K 科幻"
         style_reason = "名称/目录包含科幻、未来、机器人或机甲线索。"
+    elif _has_any(text, ["ancient ruins", "archaeological", "archaeology", "temple ruins", "古代遗迹", "考古", "遗址"]):
+        style = "Y 遗迹"
+        style_reason = "名称/目录包含古代遗迹或考古线索。"
+    elif _has_any(text, ["ww1", "ww2", "world war", "worldwar", "1940s", "一战", "二战", "世界大战"]):
+        style = "Y 一战二战"
+        style_reason = "名称/目录明确包含一战、二战或世界大战线索。"
+    elif _has_any(
+        text,
+        [
+            "wasteland", "post apocalyptic", "post-apocalyptic", "abandoned", "destroyed",
+            "demolished", "debris", "rubble", "scrap", "wreck", "ruined", "decay",
+            "trash", "junk", "garbage", "dump", "废墟", "废弃", "残骸", "碎石", "瓦砾", "破败", "拆除",
+        ],
+    ):
+        style = "F 废土"
+        style_reason = "名称或批次语境包含废墟、废弃、残骸或拆除线索。"
+    elif _has_any(text, ["interior", "indoor", "room", "supermarket", "store", "shop", "floor", "室内", "超市", "商店", "房间"]):
+        style = "S 室内"
+        style_reason = "名称/目录包含室内、楼层或商业空间线索。"
+    elif _has_any(text, ["building", "buildings", "architecture", "facade", "facades", "city", "street", "urban", "town", "建筑", "立面", "城市", "街道"]):
+        style = "C 城市"
+        style_reason = "名称/目录包含城市、建筑、立面或街道线索。"
+    elif _has_any(text, ["military", "army", "combat", "军事", "军用", "近现代"]):
+        style = "J 近现代"
+        style_reason = "名称/目录包含近现代军事或乌克兰语境，且没有世界大战年代线索。"
+    elif _has_any(text, ["vehicle", "car", "cars", "truck", "van", "bus", "汽车", "车辆"]):
+        style = "X 现代"
+        style_reason = "名称/目录包含现代车辆线索。"
     elif _has_any(text, ["tree", "plant", "flower", "grass", "rock", "stone", "terrain", "mountain", "nature"]):
         style = "Z 自然"
         style_reason = "名称/目录包含自然、植物、石头或地形线索。"
     elif _has_any(text, ["medieval", "castle", "knight"]):
         style = "Z 中世纪"
         style_reason = "名称/目录包含中世纪线索。"
-    elif _has_any(text, ["modern", "street", "gun", "rifle", "ammo", "pistol", "cartridge"]):
+    elif _has_any(text, ["modern", "contemporary", "gun", "rifle", "ammo", "pistol", "cartridge", "现代"]):
         style = "X 现代"
         style_reason = "名称/目录包含现代、枪支或弹药线索。"
-    elif _has_any(text, ["ww1", "ww2", "world war", "military"]):
-        style = "Y 一战二战"
-        style_reason = "名称/目录包含一战、二战或军事线索。"
     elif _has_any(text, ["stylized", "cartoon"]):
         style = "F 风格化"
         style_reason = "名称/目录包含风格化线索。"
 
-    subject = None
+    subject: str | None = None
     subject_reason = ""
+    has_weapon_terms = _has_any(text, ["ammo", "bullet", "cartridge", "gun", "rifle", "pistol", "weapon", "blackout", "9mm", "5.56"])
+    has_military_terms = _has_any(text, ["military", "army", "combat", "军事", "军用"])
+    has_parts_terms = _has_any(
+        text,
+        [
+            "parts",
+            "part",
+            "prop",
+            "props",
+            "item",
+            "kitbash",
+            "hard surface",
+            "column",
+            "container",
+            "panel",
+            "panels",
+            "trim sheet",
+            "accessory",
+            "accessories",
+        ],
+    )
     if _has_any(text, ["robot", "mech", "mechanical", "android", "droid"]):
-        subject = "J 机甲"
+        subject = "mech"
         subject_reason = "内容像机器人/机甲。"
-    elif _has_any(text, ["ammo", "bullet", "cartridge", "gun", "rifle", "pistol", "weapon", "blackout", "9mm", "5.56"]):
-        subject = "Q 枪支"
+    elif has_weapon_terms and not (has_parts_terms and not _has_any(text, ["rifle", "gun", "pistol", "ammo", "bullet", "cartridge", "weapon"])):
+        subject = "weapon"
         subject_reason = "内容像枪支、弹药或武器。"
-    elif _has_any(text, ["city", "scene", "environment", "factory", "street", "town"]):
-        subject = "C 场景"
-        subject_reason = "内容像场景或城市环境。"
-    elif _has_any(text, ["building", "architecture", "house", "wall", "facade"]):
-        subject = "J 建筑"
-        subject_reason = "内容像建筑。"
-    elif _has_any(text, ["vehicle", "car", "truck", "ship", "rocket", "aircraft", "spaceship"]):
-        subject = "Z 载具"
+    elif has_military_terms and not has_parts_terms:
+        subject = "vehicle"
+        subject_reason = "Military 合集更像坦克、装甲车等军用载具。"
+    elif _has_any(text, ["vehicle", "car", "cars", "truck", "van", "bus", "ship", "rocket", "aircraft", "spaceship", "载具", "汽车", "车辆"]):
+        subject = "vehicle"
         subject_reason = "内容像载具或飞行器。"
+    elif _has_any(text, ["building", "buildings", "architecture", "house", "wall", "facade", "facades", "floor", "建筑", "立面", "楼层", "地板"]):
+        subject = "building"
+        subject_reason = "内容像建筑、立面或楼层构件。"
+    elif _has_any(text, ["supermarket", "grocery", "store props", "shop props", "超市", "杂货店"]):
+        subject = "object"
+        subject_reason = "内容像超市/杂货店中的箱盒和散件道具。"
+    elif _has_any(text, ["interior", "indoor", "room", "scene", "environment", "city", "factory", "street", "town", "室内", "商店", "场景"]):
+        subject = "scene"
+        subject_reason = "内容像室内、商业空间或环境场景。"
+    elif has_parts_terms or _has_any(text, ["debris", "rubble", "scrap", "wreck", "military", "object", "objects", "废料", "残骸", "瓦砾", "军事", "道具"]):
+        subject = "object"
+        subject_reason = "内容像道具、残骸、军用品或散件。"
     elif _has_any(text, ["character", "person", "human", "soldier", "female", "male", "body"]):
-        subject = "R 人物"
+        subject = "character"
         subject_reason = "内容像人物/角色。"
     elif _has_any(text, ["trim sheet", "texture", "panel", "material"]):
-        subject = "贴图"
+        subject = "texture"
         subject_reason = "内容像贴图、材质面板或 trim sheet。"
     elif _has_any(text, ["prop", "item", "kit", "assortment", "accessory", "accessories"]):
-        subject = "W 物件"
+        subject = "object"
         subject_reason = "内容像物件或配件。"
 
-    style_path = _child_named(model_root, style)
+    style_path = _child_named(model_root, style) if style else None
     suggestions: list[dict] = []
     if style_path and subject:
-        subject_path = _child_named(style_path, subject) or _child_contains(style_path, subject.split(maxsplit=1)[-1])
+        subject_path = _semantic_subject_child(style_path, subject)
         if subject_path:
-            suggestions.append(_make_suggestion(subject_path, 110, f"{style_reason}{subject_reason}"))
+            detail_path, detail_reason = _semantic_detail_child(subject_path, subject, text)
+            if detail_path is not None:
+                suggestions.append(
+                    _make_suggestion(
+                        detail_path,
+                        135,
+                        f"{style_reason}{subject_reason}{detail_reason}已匹配资源库现有三级分类。",
+                    )
+                )
+            suggestions.append(_make_suggestion(subject_path, 125, f"{style_reason}{subject_reason}已匹配资源库现有深层分类。"))
     if style_path:
-        suggestions.append(_make_suggestion(style_path, 85, style_reason))
-    suggestions.append(_make_suggestion(model_root, 50, "模型资源的顶层兜底分类。"))
+        suggestions.append(_make_suggestion(style_path, 90, style_reason))
+    suggestions.append(_make_suggestion(model_root, 45, "模型资源的顶层兜底分类；仅在没有更具体线索时使用。"))
+    if title_text and title_text != text:
+        # The batch context (for example “废墟二期”) is valuable, but the card
+        # title can carry a competing subject such as Interior/Military/Cars.
+        # Keep a slightly lower title-only alternative instead of hiding it.
+        for candidate in _suggest_model_targets(z_root, title_text):
+            if Path(candidate["path"]) == model_root:
+                continue
+            alternative = dict(candidate)
+            alternative["score"] = max(1, int(alternative.get("score") or 0) - 12)
+            alternative["reason"] = "仅按当前资源标题判断的备选：" + str(alternative.get("reason") or "")
+            suggestions.append(alternative)
     return suggestions
+
+
+_SUBJECT_CHILD_ALIASES = {
+    "scene": ("场景", "c 场景"),
+    "building": ("建筑", "j 建筑"),
+    "object": ("物件", "w 物件", "道具", "配件", "p 配件"),
+    "vehicle": ("载具", "z 载具"),
+    "weapon": ("枪支", "枪支 大炮", "q 枪支", "q 枪支 大炮", "兵器"),
+    "character": ("人物", "r 人物", "r 人物道具"),
+    "texture": ("贴图", "t 贴图"),
+    "mech": ("机甲", "j 机甲"),
+}
+
+
+@lru_cache(maxsize=512)
+def _semantic_subject_child(style_path: Path, subject: str) -> Path | None:
+    aliases = {_normalize(alias) for alias in _SUBJECT_CHILD_ALIASES.get(subject, ())}
+    try:
+        children = [child for child in style_path.iterdir() if child.is_dir()]
+    except OSError:
+        return None
+    exact = [child for child in children if _normalize(child.name) in aliases]
+    if exact:
+        return sorted(exact, key=lambda child: len(child.name))[0]
+    for child in children:
+        child_name = _normalize(child.name)
+        if any(alias and (child_name.endswith(alias) or alias.endswith(child_name)) for alias in aliases):
+            return child
+    return None
+
+
+@lru_cache(maxsize=1024)
+def _semantic_detail_child(subject_path: Path, subject: str, text: str) -> tuple[Path | None, str]:
+    aliases: tuple[str, ...] = ()
+    reason = ""
+    if subject == "vehicle" and _has_any(text, ["car", "cars", "truck", "van", "bus", "automobile", "汽车", "车辆"]):
+        aliases = ("c 车", "q 汽车", "车", "汽车")
+        reason = "进一步识别为汽车/车辆。"
+    elif subject == "vehicle" and _has_any(text, ["ship", "boat", "vessel", "船", "舰"]):
+        aliases = ("c 船", "船")
+        reason = "进一步识别为船舶。"
+    elif subject == "vehicle" and _has_any(text, ["aircraft", "airplane", "plane", "jet", "飞机", "飞行器"]):
+        aliases = ("z 飞机", "飞机")
+        reason = "进一步识别为飞机/飞行器。"
+    if not aliases:
+        return None, ""
+    wanted = {_normalize(alias) for alias in aliases}
+    try:
+        children = [child for child in subject_path.iterdir() if child.is_dir()]
+    except OSError:
+        return None, ""
+    for child in children:
+        if _normalize(child.name) in wanted:
+            return child, reason
+    return None, ""
 
 
 def _suggest_photo_targets(z_root: Path, text: str) -> list[dict]:
@@ -220,12 +371,15 @@ def _learned_name_matches(z_root: Path, resource_type: str, text: str) -> list[d
         "material": "C ",
         "ue": "U ",
     }
-    prefix = roots.get(resource_type)
-    if not prefix:
-        return []
-    top = _find_top(z_root, prefix)
-    if top is None:
-        return []
+    # For unknown/mixed types, search across all known roots
+    prefixes: list[str]
+    if resource_type in ("unknown", "mixed"):
+        prefixes = list(roots.values())
+    else:
+        prefix = roots.get(resource_type)
+        if not prefix:
+            return []
+        prefixes = [prefix]
 
     stop_words = {
         "model",
@@ -252,14 +406,18 @@ def _learned_name_matches(z_root: Path, resource_type: str, text: str) -> list[d
         return []
 
     suggestions: list[dict] = []
-    for path in _category_paths(top, max_depth=2):
-        name_text = _normalize(path.name)
-        score = 0
-        for word in words:
-            if word in name_text:
-                score += 12
-        if score >= 36:
-            suggestions.append(_make_suggestion(path, min(75, score), "与现有分类目录名有关键词重合。"))
+    for pf in prefixes:
+        top = _find_top(z_root, pf)
+        if top is None:
+            continue
+        for path in _category_paths(top, max_depth=2):
+            name_text = _normalize(path.name)
+            score = 0
+            for word in words:
+                if word in name_text:
+                    score += 12
+            if score >= 36:
+                suggestions.append(_make_suggestion(path, min(75, score), "与现有分类目录名有关键词重合。"))
     return suggestions
 
 
@@ -287,6 +445,7 @@ def _category_paths(root: Path, max_depth: int = 2) -> tuple[Path, ...]:
     return tuple(paths)
 
 
+@lru_cache(maxsize=128)
 def _find_top(z_root: Path, prefix: str) -> Path | None:
     try:
         children = [child for child in z_root.iterdir() if child.is_dir()]
@@ -300,6 +459,7 @@ def _find_top(z_root: Path, prefix: str) -> Path | None:
     return sorted(candidates, key=lambda p: len(p.name))[0] if candidates else None
 
 
+@lru_cache(maxsize=512)
 def _child_named(parent: Path, name: str) -> Path | None:
     try:
         for child in parent.iterdir():

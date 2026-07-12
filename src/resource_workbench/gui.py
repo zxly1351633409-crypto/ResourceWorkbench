@@ -17,8 +17,9 @@ from .scanner import ScanConfig, scan_input
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_TEST_PATH = Path(r"F:\gpt codex huancun\资源管理工具开发\测试")
-DEFAULT_Z_ROOT = Path(r"Z:\整合——资源管理")
+DEFAULT_TEST_PATH = PROJECT_ROOT / "测试"
+_library_root_text = os.environ.get("RESOURCE_WORKBENCH_LIBRARY_ROOT", "").strip()
+DEFAULT_Z_ROOT = Path(_library_root_text) if _library_root_text else None
 
 
 TYPE_LABELS = {
@@ -355,16 +356,16 @@ class ResourceWorkbenchApp(tk.Tk):
     def _short_target(self, card: dict) -> str:
         if card.get("user_target_path"):
             target = card["user_target_path"]
-            root_text = str(DEFAULT_Z_ROOT)
-            if target.startswith(root_text):
+            root_text = str(DEFAULT_Z_ROOT) if DEFAULT_Z_ROOT is not None else ""
+            if root_text and target.startswith(root_text):
                 return "手动：" + target[len(root_text):].lstrip("\\/")
             return "手动：" + target
         targets = card.get("target_path_hints") or []
         if not targets:
             return ""
         target = targets[0]
-        root_text = str(DEFAULT_Z_ROOT)
-        if target.startswith(root_text):
+        root_text = str(DEFAULT_Z_ROOT) if DEFAULT_Z_ROOT is not None else ""
+        if root_text and target.startswith(root_text):
             return target[len(root_text):].lstrip("\\/")
         return target
 
@@ -398,7 +399,7 @@ class ResourceWorkbenchApp(tk.Tk):
             return
         folder = filedialog.askdirectory(
             title="选择这张卡片的目标分类",
-            initialdir=str(DEFAULT_Z_ROOT if DEFAULT_Z_ROOT.exists() else PROJECT_ROOT),
+            initialdir=str(DEFAULT_Z_ROOT if DEFAULT_Z_ROOT is not None and DEFAULT_Z_ROOT.exists() else PROJECT_ROOT),
         )
         if not folder:
             return

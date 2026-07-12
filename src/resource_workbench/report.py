@@ -43,6 +43,11 @@ def render_markdown(payload: dict) -> str:
     lines.append(f"- 输入类型：{scan.get('kind')}")
     lines.append(f"- 文件数：{scan.get('total_files')}")
     lines.append(f"- 文件夹数：{scan.get('total_dirs')}")
+    if scan.get("top_level_card_invariant_applied"):
+        lines.append(f"- 首层资源文件夹：{scan.get('top_level_directory_count', 0)}")
+        lines.append(f"- 已有卡片覆盖的首层资源：{scan.get('top_level_card_count', 0)}")
+        missing = scan.get("missing_top_level_directories") or []
+        lines.append(f"- 首层资源缺卡：{'、'.join(missing) if missing else '无'}")
     lines.append(f"- 扫描耗时：{scan.get('elapsed_seconds')} 秒")
     lines.append("- 安全状态：只读扫描；没有移动、删除、上传。")
     lines.append("")

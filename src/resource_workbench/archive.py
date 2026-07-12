@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 import time
+
+from .passwords import infer_archive_passwords
 
 
 @dataclass(frozen=True)
@@ -23,6 +26,32 @@ KNOWN_HAOZIP_PATHS = [
     Path(r"C:\Program Files\2345Soft\HaoZip\HaoZipC.exe"),
     Path(r"C:\Program Files (x86)\2345Soft\HaoZip\HaoZipC.exe"),
 ]
+
+
+def silent_subprocess_kwargs() -> dict[str, object]:
+    """Return platform-specific options for silent archive commands.
+
+    7-Zip/HaoZip are console programs.  Without these flags Windows creates a
+    transient console window which can steal focus from the workbench.
+    """
+    if os.name != "nt":
+        return {}
+
+    kwargs: dict[str, object] = {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+    startupinfo_factory = getattr(subprocess, "STARTUPINFO", None)
+    if startupinfo_factory is not None:
+        startupinfo = startupinfo_factory()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+        startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
+
+
+def _subprocess_kwargs() -> dict[str, object]:
+    """Backward-compatible private alias used by existing tests."""
+    return silent_subprocess_kwargs()
 
 
 def find_archive_backends() -> list[ArchiveBackend]:
@@ -84,6 +113,7 @@ def list_archive_entries(archive_path: Path, limit: int = 200, timeout_seconds: 
             capture_output=True,
             timeout=timeout_seconds,
             check=False,
+            **_subprocess_kwargs(),
         )
     except subprocess.TimeoutExpired:
         return {
@@ -147,52 +177,55 @@ def extract_archive_entry(archive_path: Path, entry_path: str, output_dir: Path,
 
     output_dir.mkdir(parents=True, exist_ok=True)
     before = time.time()
-    command = [
-        str(backend.executable),
-        "e",
-        "-y",
-        "-p",
-        str(archive_path),
-        entry_path,
-        f"-o{output_dir}",
-    ]
+    passwords = infer_archive_passwords(archive_path)
+    last_error = ""
+    newest: Path | None = None
 
-    try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
+    for password in passwords:
+        before = time.time()
+        command = [
+            str(backend.executable),
+            "e",
+            "-y",
+            f"-p{password}",
+            str(archive_path),
+            entry_path,
+            f"-o{output_dir}",
+        ]
+
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                timeout=timeout_seconds,
+                check=False,
+                **_subprocess_kwargs(),
+            )
+        except subprocess.TimeoutExpired:
+            last_error = f"抽取预览图超过 {timeout_seconds} 秒，已停止。"
+            continue
+
+        extracted_files = [
+            item
+            for item in output_dir.iterdir()
+            if item.is_file() and item.stat().st_mtime >= before - 1
+        ]
+        if not extracted_files:
+            extracted_files = [item for item in output_dir.iterdir() if item.is_file()]
+        if extracted_files:
+            newest = max(extracted_files, key=lambda item: item.stat().st_mtime)
+            break
+
+        fallback_text = _decode_process_output(completed.stderr).strip() or _decode_process_output(completed.stdout).strip()
+        last_error = fallback_text[-800:]
+
+    if newest is None:
         return {
             "ok": False,
             "path": None,
-            "error": f"抽取预览图超过 {timeout_seconds} 秒，已停止。",
+            "error": last_error or "预览图抽取完成，但没有找到输出文件。",
         }
 
-    extracted_files = [
-        item
-        for item in output_dir.iterdir()
-        if item.is_file() and item.stat().st_mtime >= before - 1
-    ]
-    if not extracted_files:
-        extracted_files = [item for item in output_dir.iterdir() if item.is_file()]
-    if not extracted_files:
-        if completed.returncode != 0:
-            fallback_text = _decode_process_output(completed.stderr).strip() or _decode_process_output(completed.stdout).strip()
-            return {
-                "ok": False,
-                "path": None,
-                "error": fallback_text[-800:],
-            }
-        return {
-            "ok": False,
-            "path": None,
-            "error": "预览图抽取完成，但没有找到输出文件。",
-        }
-
-    newest = max(extracted_files, key=lambda item: item.stat().st_mtime)
     return {
         "ok": True,
         "path": str(newest),

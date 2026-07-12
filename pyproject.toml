@@ -1,9 +1,21 @@
 [project]
 name = "resource-workbench"
-version = "0.1.0"
+version = "0.3.1"
 description = "A cautious resource-ingest workbench for scanning asset folders and proposing resource cards."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "imageio-ffmpeg>=0.5",
+  "Pillow>=10.0",
+  "PySide6>=6.11",
+]
+
+[project.optional-dependencies]
+fluent = [
+  "PySide6-Fluent-Widgets>=1.8",
+]
+build = [
+  "pyinstaller>=6.0",
+]
 
 [project.scripts]
 resource-workbench = "resource_workbench.cli:main"
@@ -11,7 +23,9 @@ resource-workbench = "resource_workbench.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+resource_workbench = ["assets/*"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
-

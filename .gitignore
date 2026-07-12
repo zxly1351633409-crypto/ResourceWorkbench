@@ -11,6 +11,11 @@ workbench_data/
 temp_extract/
 logs/
 .env
+build/
+dist/
+release_archive/
+*.spec
+.runtime/
 
 tools/downloads/*
 !tools/downloads/.gitkeep

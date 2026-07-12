@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -141,6 +142,10 @@ def normalized_ext(path: Path | str) -> str:
         return ".tbz2"
     if name.endswith(".tar.xz"):
         return ".txz"
+    # Blender keeps crash/backup generations as .blend1, .blend2, ... .  They
+    # are still real Blender project files and must contribute model evidence.
+    if re.search(r"\.blend\d+$", name):
+        return ".blend"
     return Path(name).suffix.lower()
 
 
